@@ -1,0 +1,3 @@
+[workspace]
+members = ["core", "plugin_cube"]
+resolver = "3"
