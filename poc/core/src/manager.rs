@@ -1,4 +1,4 @@
-use crate::module::{KeyEvent, ModuleInstance, TextSegment};
+use crate::module::{EngineContext, InputState, ModuleInstance, TextSegment};
 use colored::*;
 use std::{
     path::{Path, PathBuf},
@@ -18,6 +18,7 @@ pub struct ModuleManager {
     engine: Engine,
     pub pipeline: Vec<ModuleInstance>,
     pub shared: Arc<Mutex<SharedEngineState>>,
+    pub context: EngineContext,
 }
 
 impl ModuleManager {
@@ -33,6 +34,7 @@ impl ModuleManager {
             engine,
             pipeline: Vec::new(),
             shared,
+            context: EngineContext::Gameplay,
         }
     }
 
@@ -114,19 +116,10 @@ impl ModuleManager {
         }
     }
 
-    pub fn handle_inputs(&mut self, event: KeyEvent) {
-        let mut input_blocked = false;
-        self.pipeline.retain_mut(|module| {
-            if input_blocked {
-                return true;
-            }
-            match module.call_handle_input(&event) {
-                Ok(consumed) => {
-                    if consumed {
-                        input_blocked = true;
-                    }
-                    true
-                }
+    pub fn handle_inputs(&mut self, state: InputState) {
+        self.pipeline
+            .retain_mut(|module| match module.call_handle_input(&state) {
+                Ok(_) => true,
                 Err(e) => {
                     eprintln!(
                         "{} {} {} {} {e}",
@@ -137,8 +130,7 @@ impl ModuleManager {
                     );
                     false
                 }
-            }
-        });
+            });
     }
 
     pub fn broadcast_logs(&mut self) {

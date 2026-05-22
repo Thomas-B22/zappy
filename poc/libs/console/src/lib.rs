@@ -13,12 +13,18 @@ static CONSOLE: Mutex<ConsoleState> = Mutex::new(ConsoleState {
     opened: false,
     input: String::new(),
     logs: Vec::new(),
+    history: Vec::new(),
+    history_index: None,
+    scroll_offset: 0,
 });
 
 struct ConsoleState {
     opened: bool,
     input: String,
     logs: Vec<Vec<TextSegment>>,
+    history: Vec<String>,
+    history_index: Option<usize>,
+    scroll_offset: usize,
 }
 
 fn split_segments_by_lines(segments: Vec<TextSegment>) -> Vec<Vec<TextSegment>> {
@@ -71,58 +77,78 @@ fn split_segments_by_lines(segments: Vec<TextSegment>) -> Vec<Vec<TextSegment>> 
 struct Module;
 
 impl Guest for Module {
-    fn handle_input(event: KeyEvent) -> bool {
-        let mut state = CONSOLE.lock().unwrap();
+    fn handle_input(state: InputState) {
+        let mut console = CONSOLE.lock().unwrap();
 
-        match event {
-            KeyEvent::Pressed(key) => {
-                if key == "F1" {
-                    state.opened = !state.opened;
-                    return true;
-                }
+        console.opened = matches!(state.context, EngineContext::UiConsole);
 
-                if state.opened {
-                    match key.as_str() {
-                        "Enter" => {
-                            let trimmed = state.input.trim().to_string();
-                            if !trimmed.is_empty() {
-                                state.logs.push(vec![TextSegment {
-                                    text: format!("> {trimmed}"),
-                                    color: Color {
-                                        r: 100,
-                                        g: 100,
-                                        b: 100,
-                                        a: 255,
-                                    },
-                                }]);
+        if !console.opened {
+            return;
+        }
 
-                                let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                                let cmd = parts[0].to_string();
-                                let args: Vec<String> =
-                                    parts[1..].iter().map(|s| s.to_string()).collect();
+        for c in state.raw_chars.chars() {
+            console.input.push(c);
+            console.scroll_offset = 0;
+        }
 
-                                let response = host_system_command(&cmd, &args);
-                                let split_lines = split_segments_by_lines(response);
-                                state.logs.extend(split_lines);
-                                state.input.clear();
-                            }
-                        }
-                        "Backspace" => {
-                            state.input.pop();
-                        }
-                        _ => {}
+        for action in state.actions {
+            match action {
+                InputAction::Confirm => {
+                    let trimmed = console.input.trim().to_string();
+                    if !trimmed.is_empty() {
+                        console.history.push(trimmed.clone());
+                        console.history_index = None;
+                        console.scroll_offset = 0;
+
+                        console.logs.push(vec![TextSegment {
+                            text: format!("> {trimmed}"),
+                            color: Color {
+                                r: 100,
+                                g: 100,
+                                b: 100,
+                                a: 255,
+                            },
+                        }]);
+
+                        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                        let cmd = parts[0].to_string();
+                        let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+
+                        let response = host_system_command(&cmd, &args);
+                        let split_lines = split_segments_by_lines(response);
+                        console.logs.extend(split_lines);
+                        console.input.clear();
                     }
-                    return true;
                 }
-            }
-            KeyEvent::CharInput(c) => {
-                if state.opened {
-                    state.input.push_str(&c);
-                    return true;
+                InputAction::Delete => {
+                    console.input.pop();
                 }
+                InputAction::NavigateUp if !console.history.is_empty() => {
+                    let idx = match console.history_index {
+                        Some(i) => i.saturating_sub(1),
+                        None => console.history.len() - 1,
+                    };
+                    console.history_index = Some(idx);
+                    console.input = console.history[idx].clone();
+                }
+                InputAction::NavigateDown if let Some(idx) = console.history_index => {
+                    if idx + 1 < console.history.len() {
+                        console.history_index = Some(idx + 1);
+                        console.input = console.history[idx + 1].clone();
+                    } else {
+                        console.history_index = None;
+                        console.input.clear();
+                    }
+                }
+                InputAction::ScrollUp => {
+                    console.scroll_offset += 1;
+                }
+                InputAction::ScrollDown => {
+                    console.scroll_offset = console.scroll_offset.saturating_sub(1);
+                }
+                _ => {}
             }
         }
-        state.opened
     }
 
     fn run_command(_cmd: String, _args: Vec<String>) -> ResponseCommand {
@@ -130,7 +156,7 @@ impl Guest for Module {
     }
 
     fn update_module(_time: f32, _dt: f32, w: f32, h: f32) -> Vec<RenderCommand> {
-        let state = CONSOLE.lock().unwrap();
+        let mut state = CONSOLE.lock().unwrap();
         if !state.opened {
             return Vec::new();
         }
@@ -155,12 +181,24 @@ impl Guest for Module {
 
         let start_y = 25.0;
         let line_height = 20.0;
-        let max_lines = (console_height - start_y) / line_height - 1.0;
-        let display_logs = if state.logs.len() > max_lines as usize {
-            &state.logs[state.logs.len() - max_lines as usize..]
+
+        let max_lines_f32 = (console_height - start_y) / line_height - 1.0;
+        let max_lines = if max_lines_f32 > 0.0 {
+            max_lines_f32 as usize
         } else {
-            &state.logs
+            0
         };
+        let total_logs = state.logs.len();
+
+        let max_scroll = total_logs.saturating_sub(max_lines);
+        if state.scroll_offset > max_scroll {
+            state.scroll_offset = max_scroll;
+        }
+
+        let end_idx = total_logs.saturating_sub(state.scroll_offset);
+        let start_idx = end_idx.saturating_sub(max_lines);
+
+        let display_logs = &state.logs[start_idx..end_idx];
 
         for (i, line) in display_logs.iter().enumerate() {
             let mut current_x = 15.0;
@@ -170,7 +208,7 @@ impl Guest for Module {
                     text: segment.text.clone(),
                     x: current_x,
                     y: start_y + (i as f32) * line_height,
-                    size: 18.0,
+                    size: 20.0,
                     color: Color {
                         r: segment.color.r,
                         g: segment.color.g,
@@ -178,13 +216,14 @@ impl Guest for Module {
                         a: segment.color.a,
                     },
                 }));
-                current_x += segment.text.len() as f32 * 8.0;
+                current_x += segment.text.len() as f32 * 8.5;
             }
         }
 
-        let input_y = start_y + (max_lines) * line_height + 10.0;
+        let input_y = start_y + (max_lines_f32) * line_height + 10.0;
         let current_x = 15.0;
         let user = "testing".to_string();
+
         cmds.push(RenderCommand::Text(TextCmd {
             text: user.clone(),
             x: current_x,

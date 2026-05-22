@@ -32,30 +32,19 @@ impl Guest for Module {
         }
     }
 
-    fn handle_input(event: KeyEvent) -> bool {
-        if let KeyEvent::Pressed(key) = event {
+    fn handle_input(state: InputState) {
+        if matches!(state.context, EngineContext::Gameplay) {
             let mut offsets = OFFSETS.lock().unwrap();
-            match key.as_str() {
-                "Left" => {
-                    offsets.0 -= 10.0;
-                    true
+
+            for action in state.actions {
+                match action {
+                    InputAction::MoveLeft => offsets.0 -= 10.0,
+                    InputAction::MoveRight => offsets.0 += 10.0,
+                    InputAction::MoveUp => offsets.1 -= 10.0,
+                    InputAction::MoveDown => offsets.1 += 10.0,
+                    _ => {}
                 }
-                "Right" => {
-                    offsets.0 += 10.0;
-                    true
-                }
-                "Up" => {
-                    offsets.1 -= 10.0;
-                    true
-                }
-                "Down" => {
-                    offsets.1 += 10.0;
-                    true
-                }
-                _ => false,
             }
-        } else {
-            false
         }
     }
 

@@ -11,9 +11,7 @@ static OVERLAY_ACTIVE: Mutex<bool> = Mutex::new(false);
 struct Module;
 
 impl Guest for Module {
-    fn handle_input(_event: KeyEvent) -> bool {
-        false
-    }
+    fn handle_input(_state: InputState) {}
 
     fn run_command(cmd: String, args: Vec<String>) -> ResponseCommand {
         match cmd.as_str() {
