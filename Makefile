@@ -1,5 +1,6 @@
 RUST_MODULES = 	\
 	console		\
+	crosshair	\
 	game_view	\
 	overlay
 
