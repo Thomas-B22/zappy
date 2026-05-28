@@ -82,7 +82,7 @@ impl Guest for Module {
 
         let metrics = DYNAMIC_METRICS.lock().unwrap();
 
-        let font_size = 14.0;
+        let font_size = 15.0;
         let padding_right = 2.0;
         let padding_top = 20.0;
         let line_height = 20.0;
