@@ -6,17 +6,14 @@ The `zappy_server` is the central authority of the Zappy project.
 
 It is responsible for:
 
-- accepting AI and GUI clients
-- owning the game world
-- storing teams, players, eggs, resources and tiles
-- receiving commands from clients
-- executing commands after their Zappy time delay
-- sending responses to AI clients
-- sending world updates to GUI clients
-- detecting player death
-- detecting the winning team
+- accepting client connections
+- reading data sent by clients
+- sending the initial `WELCOME\n` message
+- storing the server configuration
+- running with a single process and a single thread
+- using `poll`-style socket multiplexing through `mio`
 
-The server must run as a single process and a single thread. It must use `poll` to handle several sockets without blocking.
+The server must not block while waiting for one client.
 
 ## 2. Current state
 
@@ -30,21 +27,6 @@ Current implemented features:
 - `WELCOME\n` message sent to new clients
 - basic client read handling
 - named constants used instead of magic numbers
-
-Not implemented yet:
-
-- real Zappy handshake
-- AI team authentication
-- GUI authentication with `GRAPHIC`
-- player creation
-- map generation
-- resources
-- command queue
-- timed events
-- GUI protocol
-- death system
-- incantation
-- win condition
 
 ## 3. Project constraints
 
@@ -77,61 +59,99 @@ The reserved team name for the graphical client is:
 GRAPHIC
 ```
 
-AI clients connect by TCP. The server first sends:
+When a client connects, the server first sends:
 
 ```txt
 WELCOME\n
 ```
 
-Then the client sends its team name.
-
-For an AI client, the server must answer:
+## 4. Current server flow
 
 ```txt
-CLIENT-NUM\n
-X Y\n
+start program
+parse arguments
+validate configuration
+create TCP listener
+create poll instance
+register listener in poll
+enter main loop
+wait for socket activity
+accept new clients
+send WELCOME message
+read client data
+remove disconnected clients
 ```
 
-Where:
+## 5. Server mental model
 
-- `CLIENT-NUM` is the number of available slots for the team
-- `X Y` is the size of the world
-
-## 4. Server mental model
-
-The server is split into layers.
+The current server has three main parts.
 
 ```txt
+Argument layer
+    reads command-line options
+    creates the Config structure
+    validates values
+
 Network layer
-    accepts clients
-    reads bytes from sockets
-    writes queued responses
+    creates the TCP listener
+    accepts new clients
+    reads data from sockets
 
-Protocol layer
-    understands AI commands
-    understands GUI commands
-    formats responses
-
-Game layer
-    owns map, players, teams, eggs and resources
-    applies game rules
-
-Time layer
-    schedules commands
-    executes actions only when their delay is finished
-
-GUI notification layer
-    sends world updates to graphical clients
+Poll layer
+    waits for activity
+    wakes up when a socket is ready
+    allows several clients without blocking
 ```
 
-The rule is:
+The current rule is:
 
 ```txt
-network code should not directly implement game logic
-game logic should not directly manage sockets
+network code should only manage sockets
+argument code should only manage configuration
+poll code should only dispatch socket events
 ```
 
-## 5. Current main functions
+## 6. Current data structures
+
+### `Config`
+
+Stores the command-line configuration.
+
+```rust
+struct Config {
+    port: u16,
+    width: usize,
+    height: usize,
+    teams: Vec<String>,
+    clients_nb: usize,
+    freq: usize,
+}
+```
+
+Fields:
+
+* `port`: port used by the server
+* `width`: map width
+* `height`: map height
+* `teams`: list of team names
+* `clients_nb`: number of authorized clients per team
+* `freq`: frequency used for Zappy time units
+
+### `Client`
+
+Stores a connected client.
+
+```rust
+struct Client {
+    socket: TcpStream,
+}
+```
+
+Fields:
+
+* `socket`: TCP connection between the server and the client
+
+## 7. Current main functions
 
 ### `main`
 
@@ -139,12 +159,12 @@ Entry point of the server.
 
 Responsibilities:
 
-- parse command-line arguments
-- create the poll instance
-- create the TCP listener
-- register the listener in poll
-- store connected clients
-- run the main event loop
+* parse command-line arguments
+* create the poll instance
+* create the TCP listener
+* register the listener in poll
+* store connected clients
+* run the main event loop
 
 Current flow:
 
@@ -183,18 +203,79 @@ Config {
 }
 ```
 
+### `parse_next_value`
+
+Reads the value after a flag.
+
+Example:
+
+```txt
+-p 4242
+```
+
+The flag is:
+
+```txt
+-p
+```
+
+The value is:
+
+```txt
+4242
+```
+
+This function converts the value from text into the expected type.
+
+### `parse_team_names`
+
+Reads every team name after `-n`.
+
+Example:
+
+```bash
+-n team1 team2 team3
+```
+
+Result:
+
+```rust
+teams = ["team1", "team2", "team3"]
+```
+
+The function stops reading team names when it reaches another flag.
+
+Example:
+
+```bash
+-n team1 team2 -c 3
+```
+
+It reads:
+
+```txt
+team1
+team2
+```
+
+Then stops at:
+
+```txt
+-c
+```
+
 ### `validate_config`
 
 Checks if the parsed configuration is valid.
 
 Current checks:
 
-- port must be greater than 0
-- width must be greater than 0
-- height must be greater than 0
-- at least one team must exist
-- clients number must be greater than 0
-- frequency must be greater than 0
+* port must be greater than 0
+* width must be greater than 0
+* height must be greater than 0
+* at least one team must exist
+* clients number must be greater than 0
+* frequency must be greater than 0
 
 ### `create_listener`
 
@@ -202,17 +283,29 @@ Creates the TCP listener.
 
 The listener is the socket that waits for new clients.
 
+### `create_socket_address`
+
+Builds the address used by the listener.
+
+Example:
+
+```txt
+0.0.0.0:4242
+```
+
+This means the server listens on port `4242`.
+
 ### `accept_new_clients`
 
 Accepts every pending client connection.
 
 Current behavior:
 
-- accepts the client
-- gives it a unique poll token
-- registers the client socket into poll
-- sends `WELCOME\n`
-- stores the client in the clients map
+* accepts the client
+* gives it a unique poll token
+* registers the client socket into poll
+* sends `WELCOME\n`
+* stores the client in the clients map
 
 ### `read_from_client`
 
@@ -220,299 +313,39 @@ Reads data from a connected client.
 
 Current behavior:
 
-- reads bytes from the socket
-- prints the received message
-- removes the client if it disconnects
+* reads bytes from the socket
+* prints the received message
+* removes the client if it disconnects
 
-Later, this function should not execute commands directly.
 
-Instead, it should:
+## 8. How to test the current server
 
-```txt
-read bytes
-add bytes to client input buffer
-extract complete lines ending with '\n'
-send each complete command line to the protocol layer
-```
-
-## 6. Important constants
-
-This project follows the rule:
-
-```txt
-no magic numbers
-```
-
-A magic number is a value written directly in code without a name.
-
-Bad:
-
-```rust
-let mut buffer = [0; 512];
-std::process::exit(84);
-```
-
-Good:
-
-```rust
-const READ_BUFFER_SIZE: usize = 512;
-const EPITECH_ERROR_EXIT: i32 = 84;
-
-let mut buffer = [0; READ_BUFFER_SIZE];
-std::process::exit(EPITECH_ERROR_EXIT);
-```
-
-Current constants:
-
-```rust
-SERVER_TOKEN_ID
-FIRST_CLIENT_TOKEN_ID
-TOKEN_INCREMENT
-EVENTS_CAPACITY
-READ_BUFFER_SIZE
-EPITECH_ERROR_EXIT
-DEFAULT_BIND_ADDRESS
-WELCOME_MESSAGE
-HELP_FLAG
-PORT_FLAG
-WIDTH_FLAG
-HEIGHT_FLAG
-TEAM_NAMES_FLAG
-CLIENTS_NB_FLAG
-FREQUENCY_FLAG
-USAGE
-MIN_PORT
-MIN_WIDTH
-MIN_HEIGHT
-MIN_CLIENTS_NB
-MIN_FREQUENCY
-```
-
-Future constants to add:
-
-```rust
-MAX_PENDING_COMMANDS
-FOOD_LIFE_TIME_UNITS
-INITIAL_FOOD_UNITS
-RESOURCE_RESPAWN_TIME
-FORWARD_TIME
-RIGHT_TIME
-LEFT_TIME
-LOOK_TIME
-INVENTORY_TIME
-BROADCAST_TIME
-FORK_TIME
-EJECT_TIME
-TAKE_TIME
-SET_TIME
-INCANTATION_TIME
-```
-
-## 7. How to add a new server feature
-
-When adding a feature, follow this order.
-
-### Step 1: define the data
-
-Ask:
-
-```txt
-What state does this feature need?
-Where should this state live?
-```
-
-Example:
-
-For player movement, we need:
-
-```rust
-Player {
-    id,
-    x,
-    y,
-    orientation,
-    level,
-    inventory,
-}
-```
-
-### Step 2: define constants
-
-No magic numbers.
-
-Example:
-
-```rust
-const FORWARD_TIME: u64 = 7;
-```
-
-### Step 3: parse the command
-
-The protocol layer should recognize the command string.
-
-Example:
-
-```txt
-Forward
-```
-
-### Step 4: schedule the action
-
-Most AI commands are not instant.
-
-Example:
-
-```txt
-Forward takes 7 / freq seconds
-```
-
-So the server should create a timed event instead of moving immediately.
-
-### Step 5: execute the action
-
-When the event is ready, the game layer applies the real effect.
-
-Example:
-
-```txt
-update player position
-send "ok\n" to AI
-send "ppo #n X Y O\n" to GUI
-```
-
-### Step 6: test manually
-
-Use `nc` to test the server.
-
-Example:
-
-```bash
-nc localhost 4242
-```
-
-### Step 7: update this documentation
-
-Every feature should add:
-
-- what was added
-- which files were changed
-- important functions
-- how to test it
-- known limitations
-
-## 8. Feature documentation template
-
-Use this template when adding a new feature.
-
-````md
-## Feature: FEATURE_NAME
-
-### Goal
-
-Explain what the feature does.
-
-### Files changed
-
-- `path/to/file.rs`
-- `path/to/other_file.rs`
-
-### New constants
-
-```rust
-const EXAMPLE_CONST: usize = 10;
-````
-
-### New structs / enums
-
-```rust
-struct Example {
-    field: usize,
-}
-```
-
-### Main functions
-
-#### `function_name`
-
-Explain what the function does.
-
-### Flow
-
-```txt
-client sends command
-server parses command
-server schedules event
-event executes
-server sends response
-GUI is notified if needed
-```
-
-### Manual test
+Run the server:
 
 ```bash
 cargo run -- -p 4242 -x 10 -y 10 -n team1 team2 -c 3 -f 100
+```
+
+In another terminal, connect with `nc`:
+
+```bash
 nc localhost 4242
 ```
 
-### Expected result
+Expected client output:
 
 ```txt
 WELCOME
 ```
 
-### Notes
-
-Add warnings, limitations or future improvements here.
-
-````
-
-## 9. Next planned feature
-
-Next feature:
+Then type:
 
 ```txt
-real Zappy handshake
-````
-
-Goal:
-
-```txt
-client connects
-server sends WELCOME
-client sends either:
-    GRAPHIC
-    or a team name
-
-if GRAPHIC:
-    client becomes GUI
-
-if valid team name:
-    client becomes AI/player
-    server sends:
-        CLIENT-NUM
-        X Y
-
-if invalid team name:
-    server disconnects or answers ko depending on chosen handling
+team1
 ```
 
-This will require:
+Expected server output:
 
-- a client state enum
-- an input buffer per client
-- line extraction
-- team validation
-- client type detection
-
-````
-
-Then commit it separately:
-
-```bash
-git add server/docs/SERVER_ARCHITECTURE.md
-git commit -m "Add server architecture documentation" -m "Document the current Rust server foundation, main functions, project constraints, no magic number rule, and the template to follow when adding new server features."
-````
-
-This is a good doc commit because it is not mixed with code. It explains your architecture and gives your teammate a guide for future features.
-
-The parts about `zappy_server` usage, `GRAPHIC`, `WELCOME`, AI handshake, single process/thread, and `poll` come directly from the Zappy subject.
+```txt
+Received: team1
+```
