@@ -11,21 +11,25 @@
 | Fragment    | `L300F`   | Carries one fragment of a long body      |
 
 Regular broadcast usage:
+
 ```txt
 Broadcast L300|<ver36>|<seq36>|<epoch36>|<route36>|<session36>|<frag36>|<body>|<inner_check36>|<outer_check36>
 ```
 
 Session broadcast usage:
+
 ```txt
 Broadcast L300S|<ver36>|<seq36>|<epoch36>|<token36>|<sess_check36>|<outer_check36>
 ```
 
 Fragment broadcast usage:
+
 ```txt
 Broadcast L300F|<ver36>|<seq36>|<frag_id36>|<frag_index36>|<frag_total36>|<epoch36>|<route36>|<body>|<outer_check36>
 ```
 
 When received through the Zappy server:
+
 ```txt
 message K, L300|...
 ```
@@ -443,6 +447,7 @@ for i in 0..PRIMARY_SCHEDULE_SIZE:
 ```
 
 Forward pass:
+
 ```txt
 for i in 1..PRIMARY_SCHEDULE_SIZE:
     primary_schedule[i] = mix64_primary(
@@ -450,6 +455,7 @@ for i in 1..PRIMARY_SCHEDULE_SIZE:
 ```
 
 Backward pass:
+
 ```txt
 for i in (0..PRIMARY_SCHEDULE_SIZE-1).rev():
     primary_schedule[i] = mix64_primary(
@@ -457,6 +463,7 @@ for i in (0..PRIMARY_SCHEDULE_SIZE-1).rev():
 ```
 
 Even/odd index pass:
+
 ```txt
 for i in 0..PRIMARY_SCHEDULE_SIZE:
     if i is even:
@@ -478,6 +485,7 @@ for i in 0..SECONDARY_SCHEDULE_SIZE:
 ```
 
 Forward pass (uses `mix64_secondary`):
+
 ```txt
 for i in 1..SECONDARY_SCHEDULE_SIZE:
     secondary_schedule[i] = mix64_secondary(
@@ -485,6 +493,7 @@ for i in 1..SECONDARY_SCHEDULE_SIZE:
 ```
 
 Backward pass (uses `mix64_secondary`):
+
 ```txt
 for i in (0..SECONDARY_SCHEDULE_SIZE-1).rev():
     secondary_schedule[i] = mix64_secondary(
@@ -492,6 +501,7 @@ for i in (0..SECONDARY_SCHEDULE_SIZE-1).rev():
 ```
 
 Odd-index scramble:
+
 ```txt
 for i in 0..SECONDARY_SCHEDULE_SIZE:
     if i is odd:
@@ -518,6 +528,7 @@ for i in 0..TERTIARY_SCHEDULE_SIZE:
 ```
 
 Forward pass (uses `mix64_primary`):
+
 ```txt
 for i in 1..TERTIARY_SCHEDULE_SIZE:
     tertiary_schedule[i] = mix64_primary(
@@ -862,6 +873,7 @@ group_c: all remaining indices (indices that satisfy neither condition, or both)
 Indices satisfying both conditions belong to `group_a`. Indices satisfying neither belong to `group_c`.
 
 Rebuild the byte vector as:
+
 ```txt
 reverse(group_b) + group_c + group_a
 ```
@@ -880,6 +892,7 @@ group_s: all remaining indices
 Indices satisfying multiple conditions: priority is `p > q > r > s` (earlier group wins).
 
 Rebuild:
+
 ```txt
 group_s + reverse(group_r) + group_p + reverse(group_q)
 ```
@@ -1030,6 +1043,7 @@ width = MATRIX_MIN_WIDTH + primary_schedule[0] modulo MATRIX_WIDTH_RANGE
 
 Fill rows, read columns (standard column-major transposition).
 Padding bytes for incomplete rows:
+
 ```txt
 pad = low_byte(primary_schedule[padding_index modulo PRIMARY_SCHEDULE_SIZE])
 ```
@@ -1045,6 +1059,7 @@ width = MATRIX_SECONDARY_MIN_WIDTH + secondary_schedule[0] modulo MATRIX_SECONDA
 ```
 
 Padding bytes:
+
 ```txt
 pad = low_byte(secondary_schedule[padding_index modulo SECONDARY_SCHEDULE_SIZE]) XOR real_route
 ```
@@ -1086,6 +1101,7 @@ Fill in row-major order. Read out in **clockwise spiral** order starting from th
 This step uses **little-endian** index interpretation for its padding byte formula (see §3).
 
 Padding bytes for incomplete spiral:
+
 ```txt
 pad = low_byte(shadow_schedule[padding_index modulo SHADOW_SCHEDULE_SIZE])
 ```
@@ -1103,6 +1119,7 @@ For `hilbert_n > 64`, use an iterative (non-recursive) Hilbert curve implementat
 The Hilbert curve traversal sequence must be identical on encoder and decoder.
 
 Padding bytes:
+
 ```txt
 pad = low_byte(mix64_shadow(hilbert_n, padding_index, seq, shadow_state_value))
 ```
@@ -1185,6 +1202,7 @@ const BIT_PERMUTATION_PRIMARY: [u8; 8] = [5, 2, 7, 0, 6, 1, 4, 3];
 ```
 
 Applied to every byte:
+
 ```txt
 output_bit[i] = input_bit[BIT_PERMUTATION_PRIMARY[i]]
 ```
@@ -1196,6 +1214,7 @@ const BIT_PERMUTATION_SECONDARY: [u8; 8] = [3, 6, 0, 5, 1, 7, 2, 4];
 ```
 
 Applied only to bytes at indices where:
+
 ```txt
 low_bit(mix64_shadow(i, seq, shadow_parity, shadow_sequence_parity)) == 1
 ```
@@ -1208,6 +1227,7 @@ Decoder undoes Step 54 before Step 53.
 ### Step 55: Primary Pairwise Byte Mixing
 
 For every pair `(byte[2k], byte[2k+1])`:
+
 ```txt
 rotation = primary_schedule[k modulo PRIMARY_SCHEDULE_SIZE] modulo BYTE_BITS
 new_a    = byte[2k]   XOR rotate_left(byte[2k+1], rotation)
@@ -1215,6 +1235,7 @@ new_b    = byte[2k+1] + rotate_right(byte[2k], rotation)
 ```
 
 If payload length is odd, last byte is mixed with:
+
 ```txt
 byte[last] = byte[last] XOR low_byte(primary_schedule[last modulo PRIMARY_SCHEDULE_SIZE])
 ```
@@ -1222,6 +1243,7 @@ byte[last] = byte[last] XOR low_byte(primary_schedule[last modulo PRIMARY_SCHEDU
 ### Step 56: Secondary Triplet Byte Mixing
 
 For every triplet `(byte[3k], byte[3k+1], byte[3k+2])`:
+
 ```txt
 r1    = secondary_schedule[k modulo SECONDARY_SCHEDULE_SIZE] modulo BYTE_BITS
 r2    = tertiary_schedule[k modulo TERTIARY_SCHEDULE_SIZE] modulo BYTE_BITS
@@ -1231,6 +1253,7 @@ new_c = byte[3k+2] XOR rotate_right(new_a, r2) + new_b
 ```
 
 Remaining 1 or 2 bytes after the last complete triplet:
+
 ```txt
 remaining_mask = low_byte(mix64_secondary(seq, secondary_state_value, k, real_route))
 byte[n] = byte[n] XOR remaining_mask
@@ -1255,6 +1278,7 @@ for r in 0..FEISTEL_ROUNDS_PRIMARY:
 ```
 
 `feistel_f_primary(data, round_key, r)`:
+
 ```txt
 for each byte at index i:
     mask = low_byte(mix64_primary(round_key, i, r, byte))
@@ -1265,6 +1289,7 @@ for each byte at index i:
 
 Applied to the result of Step 57.
 Round keys are mixed from both schedules:
+
 ```txt
 for r in 0..FEISTEL_ROUNDS_SECONDARY:
     round_key = secondary_schedule[r modulo SECONDARY_SCHEDULE_SIZE]
@@ -1276,6 +1301,7 @@ for r in 0..FEISTEL_ROUNDS_SECONDARY:
 ```
 
 `feistel_f_secondary(data, round_key, r)`:
+
 ```txt
 for each byte at index i:
     mask       = low_byte(mix64_secondary(round_key, i, r, byte))
@@ -1299,6 +1325,7 @@ for r in 0..FEISTEL_ROUNDS_TERTIARY:
 ```
 
 `feistel_f_tertiary(data, round_key, r)`:
+
 ```txt
 for each byte at index i:
     mask = low_byte(mix64_shadow(round_key, i, r, shadow_state_value))
@@ -1350,12 +1377,14 @@ Append two bytes of `secondary_shadow` (big-endian) to the payload.
 ### Step P3: Primary Custom Base Encoding
 
 Encode binary payload using the primary custom alphabet:
+
 ```txt
 CUSTOM_ALPHABET_PRIMARY =
 Qx7ZaP0LmN9bVcK2sD8fGhJ3kT5yUiO1rE4wY6tHuIpASdFgXzCvBnMje
 ```
 
 Rotate by:
+
 ```txt
 offset = primary_schedule[2] modulo len(CUSTOM_ALPHABET_PRIMARY)
 ```
@@ -1363,12 +1392,14 @@ offset = primary_schedule[2] modulo len(CUSTOM_ALPHABET_PRIMARY)
 ### Step P4: Secondary Custom Base Encoding
 
 Treat the output of P3 as a binary input (ASCII values) and re-encode using the secondary custom alphabet:
+
 ```txt
 CUSTOM_ALPHABET_SECONDARY =
 abcdefghjkmnpqrstuvwxyz23456789ABCDEFGHJKMNPQRSTUVWXYZwz!@#
 ```
 
 Rotate by:
+
 ```txt
 offset2 = secondary_schedule[2] modulo len(CUSTOM_ALPHABET_SECONDARY)
 ```
@@ -1392,6 +1423,7 @@ step        = max(1, window_size / 2)
 ```
 
 For each window position, permute the characters within the window using the Lehmer code at index:
+
 ```txt
 perm_index = shadow_schedule[window_index modulo SHADOW_SCHEDULE_SIZE] modulo factorial(window_size)
 ```
@@ -1436,6 +1468,7 @@ inner = rotate_left(inner, CHECK_ROTATION_C)
 ```
 
 `body_hash` is:
+
 ```txt
 body_hash = INITIAL_PROTOCOL_EPOCH_A
 for each character c at index i in the body string:
@@ -1581,6 +1614,7 @@ Invalid packets must not update any protocol state.
 Even after decoding, the message must not expose raw strategy directly.
 
 Prefer:
+
 ```txt
 plan 3
 role anchor
@@ -1589,6 +1623,7 @@ incant 2 zone 8
 ```
 
 Avoid:
+
 ```txt
 go to x=4 y=7
 start incantation now
@@ -1625,6 +1660,7 @@ L300F|<ver36>|<seq36>|<frag_id36>|<frag_index36>|<frag_total36>|<epoch36>|<route
 ```
 
 Fragment outer check:
+
 ```txt
 frag_outer = mix64_fold(seq, primary_epoch, frag_id, frag_index)
 frag_outer = mix64_primary(frag_outer, fragment_body_hash, primary_state_value, frag_total)
@@ -1671,6 +1707,7 @@ sess_outer = rotate_left(
 ### 19.3 Session Acceptance
 
 When a valid session packet is received and all checks pass:
+
 ```txt
 primary_session_token = token
 // Also apply §6.5 state update using the session packet's seq
@@ -1679,6 +1716,7 @@ primary_session_token = token
 ### 19.4 Regular Packet Session Field Validation
 
 The `session36` field in a regular packet must equal:
+
 ```txt
 expected = low64(mix64_primary(primary_session_token, seq, primary_epoch, primary_state_value)) modulo (2^36 - 1)
 ```
@@ -1692,6 +1730,7 @@ Mismatch causes silent discard without state update.
 Filter size: `ANTI_REPLAY_WINDOW * BLOOM_HASH_FUNCTIONS * 8` bits.
 
 Insert sequence `s`:
+
 ```txt
 for k in 0..BLOOM_HASH_FUNCTIONS:
     bit = mix64_primary(s, k, primary_epoch, STATE_MULTIPLIER_A + k as u64) modulo filter_bit_count
@@ -1699,6 +1738,7 @@ for k in 0..BLOOM_HASH_FUNCTIONS:
 ```
 
 Query sequence `s` (returns `true` if probably seen):
+
 ```txt
 for k in 0..BLOOM_HASH_FUNCTIONS:
     bit = mix64_primary(s, k, primary_epoch, STATE_MULTIPLIER_A + k as u64) modulo filter_bit_count
@@ -1732,178 +1772,3 @@ shadow_state_value     = mix64_primary(shadow_state_value, primary_epoch, second
 ```
 
 ---
-
-## 22. Backward Compatibility
-
-LABYRINTH-300 packets begin with `L300`, `L300S`, or `L300F`.
-LABYRINTH-30 packets begin with `L30`.
-These prefixes are distinct before the separator.
-
-A LABYRINTH-300 decoder that receives a LABYRINTH-30 packet silently ignores it and updates no LABYRINTH-300 state.
-A LABYRINTH-30 decoder that receives a LABYRINTH-300 packet silently ignores it and updates no LABYRINTH-30 state.
-Implementations running both protocols maintain fully independent state machines for each.
-There is no negotiation between the two protocols. Teams must agree out-of-band on which to use.
-
----
-
-## 23. Example Packets
-
-Regular packet (unfragmented):
-```txt
-Broadcast L300|1|00001A|04F9B2X|0P2|0000ZA|0|Qm-8x_Za.P7~Ld^*Rm+9J=Qz~Bv.Kp*|4X92AC3|7A91C2B3DF
-```
-
-Session packet:
-```txt
-Broadcast L300S|1|000001|04F9B2X|F3A7B2C1D0E5|8BA3CC|9CC7F1A2
-```
-
-Fragment packet (index 0 of 3):
-```txt
-Broadcast L300F|1|00001B|0FAB3C|0|3|04F9B2X|0P2|Qm-8x_Za.P7~Ld|7CC9EF12
-```
-
----
-
-## 24. Implementation Notes
-
-### 24.1 Recommended Rust Module Structure
-
-```txt
-ai/src/protocol/labyrinth300/
-├── mod.rs
-├── constants.rs
-├── state/
-│   ├── mod.rs
-│   ├── primary.rs
-│   ├── secondary.rs
-│   └── shadow.rs
-├── base36.rs
-├── schedule/
-│   ├── mod.rs
-│   ├── primary.rs
-│   ├── secondary.rs
-│   ├── tertiary.rs
-│   └── shadow.rs
-├── route.rs
-├── frame.rs
-├── semantic.rs
-├── zones/
-│   ├── mod.rs
-│   ├── primary_table.rs
-│   └── secondary_table.rs
-├── encode/
-│   ├── mod.rs
-│   ├── preparation.rs
-│   ├── steps_20_30.rs
-│   ├── steps_31_40.rs
-│   ├── steps_41_50.rs
-│   ├── steps_51_60.rs
-│   └── post_steps.rs
-├── decode/
-│   └── (mirrors encode/ structure in reverse)
-├── checks/
-│   ├── inner.rs
-│   ├── outer.rs
-│   ├── shadow.rs
-│   └── frame.rs
-├── matrix/
-│   ├── transpose.rs
-│   ├── diagonal.rs
-│   ├── spiral.rs
-│   └── hilbert.rs
-├── feistel/
-│   ├── primary.rs
-│   ├── secondary.rs
-│   └── tertiary.rs
-├── gf256.rs
-├── bloom.rs
-├── session.rs
-├── fragment.rs
-├── epoch.rs
-└── errors.rs
-```
-
-### 24.2 Public API
-
-```rust
-pub fn is_labyrinth300_packet(text: &str) -> bool;
-pub fn is_labyrinth300_session_packet(text: &str) -> bool;
-pub fn is_labyrinth300_fragment_packet(text: &str) -> bool;
-
-pub fn encode_labyrinth300_message(
-    state: &mut Labyrinth300State,
-    message: &str,
-) -> Result<Vec<String>, Labyrinth300Error>;
-// Returns one or more packets (more than one if fragmentation was required).
-
-pub fn decode_labyrinth300_session(
-    state: &mut Labyrinth300State,
-    packet: &str,
-) -> Result<bool, Labyrinth300Error>;
-// true  = session accepted and state updated
-// false = packet ignored
-
-pub fn decode_labyrinth300_fragment(
-    state: &mut Labyrinth300State,
-    packet: &str,
-) -> Result<Option<String>, Labyrinth300Error>;
-// Some(reassembled_body) when all fragments for a frag_id are present
-// None while still collecting
-
-pub fn decode_labyrinth300_message(
-    state: &mut Labyrinth300State,
-    packet: &str,
-) -> Result<Option<String>, Labyrinth300Error>;
-// Ok(Some(msg)) = valid allied message decoded
-// Ok(None)      = packet ignored
-// Err(e)        = local decoder error (state not updated)
-```
-
-### 24.3 Mandatory Initialization Order
-
-```txt
-1.  Receive map_width, map_height, frequency from the Zappy server.
-2.  Initialize primary state (§6.4).
-3.  Initialize secondary state (§6.4).
-4.  Initialize shadow state (§6.4).
-5.  Allocate and zero the bloom filter (§20).
-6.  Precompute primary zone table from map_width, map_height, INITIAL_PROTOCOL_EPOCH_A.
-7.  Precompute secondary zone table from INITIAL_PROTOCOL_EPOCH_B.
-8.  Generate sbox_primary via seeded Fisher–Yates (§13.35).
-9.  Compute sbox_primary_inv from sbox_primary.
-10. Compute HIGH_NIBBLE_SBOX inverse (§13.33) and LOW_NIBBLE_SBOX inverse (§13.34).
-11. Compute BIT_PERMUTATION_PRIMARY inverse and BIT_PERMUTATION_SECONDARY inverse.
-12. Precompute GF(256) multiplication table and inverse table using GF256_IRREDUCIBLE_POLY.
-13. Precompute factorial table up to max(SECONDARY_CHUNK_SIZE_MIN + SECONDARY_CHUNK_SIZE_RANGE).
-14. Broadcast a session packet before sending any regular packet.
-```
-
-Steps 1–13 must complete before any packet is sent or decoded.
-Step 14 must occur before any regular packet from this AI is decodable by allies.
-
----
-
-## 25. Security Warning
-
-LABYRINTH-300 is **not cryptographic security**.
-It is a public, deterministic, reversible protocol.
-Anyone with this document, sufficient patience, and a working implementation can decode any packet.
-
-Its purpose is to be maximally time-consuming to implement correctly under project deadline pressure.
-
-Specifically engineered annoyances include:
-- Four interdependent schedules where an error in any one corrupts all subsequent steps.
-- Three state machines that all desynchronize independently when a single packet is missed.
-- The byte expansion to 6 bytes with four independent consistency checks is 3× the original protocol's expansion and requires careful index tracking.
-- GF(256) multiplication requires either a purpose-built finite field library or hand-coded table construction.
-- The Hilbert curve step requires a non-trivial spatial algorithm with an iterative implementation constraint for large payloads.
-- The sliding-window Lehmer code permutation requires arbitrary-precision factorial arithmetic and an efficient unranking algorithm.
-- The three-layer route mutation creates a deep dependency chain affecting nearly every encoding step.
-- Secondary noise is inserted relative to already-primary-noised positions, so the decoder cannot process them simultaneously.
-- The bloom filter is lossy by design; false positives silently discard valid allied messages.
-- Fragmentation adds a mandatory reassembly layer before decode, with its own check formula.
-- Session tokens must be established before regular packets can be decoded, introducing another initialization failure mode.
-- The secondary Feistel mixes GF multiplication into its round function, coupling two subsystems.
-- The conditional tertiary Feistel depends on a length parity determined after the secondary Feistel completes, making early optimization invalid.
-- Decoder step ordering requirements are asymmetric in non-obvious ways (e.g. §13.32 group priority vs §13.31).
