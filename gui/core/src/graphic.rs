@@ -18,7 +18,7 @@ pub fn extract_camera(cmds: &[RenderCommand]) -> Option<Camera3D> {
                 render_target: None,
                 viewport: None,
                 z_near: 0.1,
-                z_far: 100.0,
+                z_far: 10000.0,
             });
         }
     }
