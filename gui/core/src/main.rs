@@ -75,59 +75,36 @@ fn handle_module_reloads(
 
 fn execute_single_command(manager: &mut ModuleManager, cmd: String, args: Vec<String>) {
     let mut handled = false;
-    if cmd == "load" {
-        let models = if let Ok(s) = manager.shared.lock() {
-            s.models.clone()
-        } else {
-            Vec::new()
-        };
-
-        for json_payload in models {
-            log_all!(
-                manager,
-                "{} {}",
-                "[INFO]".bright_magenta().bold(),
-                "Sending load_full_scene...".bright_black(),
-            );
-
-            if let Ok(mut s) = manager.shared.lock() {
-                s.event_queue
-                    .push((LOAD_EVENT_NAME.to_string(), json_payload));
+    for module in &mut manager.pipeline {
+        match module.call_run_command(&cmd, &args) {
+            Ok(ResponseCommand::Ok) => {
+                handled = true;
+                break;
             }
-        }
-        handled = true;
-    } else {
-        for module in &mut manager.pipeline {
-            match module.call_run_command(&cmd, &args) {
-                Ok(ResponseCommand::Ok) => {
-                    handled = true;
-                    break;
-                }
-                Ok(ResponseCommand::BadArgument) => {
-                    log_all!(
-                        manager,
-                        "{} {}{}{}{}{}",
-                        "[ERROR]".red().bold(),
-                        "Bad argument(s): '".bright_black(),
-                        args.join(" ").magenta(),
-                        "'. See command's argument(s) with '".bright_black(),
-                        "help".green(),
-                        "'.".bright_black()
-                    );
-                    handled = true;
-                    break;
-                }
-                Ok(ResponseCommand::Unknown) => {}
-                Err(e) => {
-                    log_all!(
-                        manager,
-                        "{} {} {}{}{e}",
-                        "[ERROR]".red().bold(),
-                        "running command:".bright_black(),
-                        cmd.green(),
-                        ": ".bright_black()
-                    );
-                }
+            Ok(ResponseCommand::BadArgument) => {
+                log_all!(
+                    manager,
+                    "{} {}{}{}{}{}",
+                    "[ERROR]".red().bold(),
+                    "Bad argument(s): '".bright_black(),
+                    args.join(" ").magenta(),
+                    "'. See command's argument(s) with '".bright_black(),
+                    "help".green(),
+                    "'.".bright_black()
+                );
+                handled = true;
+                break;
+            }
+            Ok(ResponseCommand::Unknown) => {}
+            Err(e) => {
+                log_all!(
+                    manager,
+                    "{} {} {}{}{e}",
+                    "[ERROR]".red().bold(),
+                    "running command:".bright_black(),
+                    cmd.green(),
+                    ": ".bright_black()
+                );
             }
         }
     }
@@ -215,6 +192,30 @@ fn update_modules_pipeline(manager: &mut ModuleManager, all_cmds: &mut Vec<Vec<R
     });
 }
 
+fn load_models(manager: &mut ModuleManager) -> bool {
+    let models = if let Ok(s) = manager.shared.lock() {
+        s.models.clone()
+    } else {
+        Vec::new()
+    };
+
+    for json_payload in models {
+        log_all!(
+            manager,
+            "{} {}",
+            "[INFO]".bright_magenta().bold(),
+            "Sending load_full_scene...".bright_black(),
+        );
+
+        if let Ok(mut s) = manager.shared.lock() {
+            s.event_queue
+                .push((LOAD_EVENT_NAME.to_string(), json_payload));
+        }
+    }
+
+    true
+}
+
 #[macroquad::main("Zappy")]
 async fn main() -> Result<(), anyhow::Error> {
     colored::control::set_override(true);
@@ -272,6 +273,8 @@ async fn main() -> Result<(), anyhow::Error> {
         "Core started successfully!".bright_black()
     );
 
+    let mut loaded_models = false;
+
     loop {
         let input_state = input_manager.process(&mut manager.context);
         handle_module_reloads(&mut manager, &reload_rx);
@@ -284,6 +287,10 @@ async fn main() -> Result<(), anyhow::Error> {
         all_cmds.clear();
         update_modules_pipeline(&mut manager, &mut all_cmds);
         render_scene_pipeline(&mut manager, &all_cmds, &tex_reg);
+
+        if !loaded_models {
+            loaded_models = load_models(&mut manager);
+        }
         next_frame().await;
     }
 }
