@@ -41,6 +41,10 @@ const LINE_DELIMITER: char = '\n';
 const CARRIAGE_RETURN: char = '\r';
 const EMPTY_LINE: &str = "";
 
+const GRAPHIC_TEAM_NAME: &str = "GRAPHIC";
+const RESPONSE_SEPARATOR: &str = " ";
+const RESPONSE_END: &str = "\n";
+
 #[derive(Debug)]
 struct Config {
     port: u16,
@@ -54,6 +58,15 @@ struct Config {
 struct Client {
     socket: TcpStream,
     input_buffer: String,
+    state: ClientState,
+    team_name: Option<String>,
+}
+
+#[derive(Debug, PartialEq)]
+enum ClientState {
+    WaitingTeamName,
+    Ai,
+    Gui,
 }
 
 fn main() -> io::Result<()> {
@@ -90,7 +103,7 @@ fn main() -> io::Result<()> {
                     accept_new_clients(&mut listener, &mut poll, &mut clients, &mut next_token_id);
                 }
                 client_token => {
-                    read_from_client(client_token, &mut clients);
+                    read_from_client(client_token, &mut clients, &config);
                 }
             }
         }
@@ -255,6 +268,8 @@ fn accept_new_clients(
                     Client {
                         socket,
                         input_buffer: String::new(),
+                        state: ClientState::WaitingTeamName,
+                        team_name: None,
                     },
                 );
             }
@@ -269,7 +284,7 @@ fn accept_new_clients(
     }
 }
 
-fn read_from_client(token: Token, clients: &mut HashMap<Token, Client>) {
+fn read_from_client(token: Token, clients: &mut HashMap<Token, Client>, config: &Config) {
     let mut should_disconnect = false;
 
     if let Some(client) = clients.get_mut(&token) {
@@ -282,7 +297,7 @@ fn read_from_client(token: Token, clients: &mut HashMap<Token, Client>) {
             }
             Ok(size) => {
                 append_to_client_buffer(client, &buffer, size);
-                handle_complete_client_lines(client);
+                handle_complete_client_lines(client, config);
             }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
             Err(error) => {
@@ -302,13 +317,15 @@ fn append_to_client_buffer(client: &mut Client, buffer: &[u8], size: usize) {
     client.input_buffer.push_str(&received_text);
 }
 
-fn handle_complete_client_lines(client: &mut Client) {
+fn handle_complete_client_lines(client: &mut Client, config: &Config) {
     while let Some(line_end_index) = client.input_buffer.find(LINE_DELIMITER) {
         let line = extract_client_line(client, line_end_index);
 
-        if line != EMPTY_LINE {
-            println!("Received line: {}", line);
+        if line == EMPTY_LINE {
+            continue;
         }
+
+        handle_client_line(client, &line, config);
     }
 }
 
@@ -322,4 +339,72 @@ fn extract_client_line(client: &mut Client, line_end_index: usize) -> String {
     }
 
     line
+}
+
+fn handle_client_line(client: &mut Client, line: &str, config: &Config) {
+    match client.state {
+        ClientState::WaitingTeamName => {
+            handle_handshake_line(client, line, config);
+        }
+        ClientState::Ai => {
+            println!("AI command from {:?}: {}", client.team_name, line);
+        }
+        ClientState::Gui => {
+            println!("GUI command: {}", line);
+        }
+    }
+}
+
+fn handle_handshake_line(client: &mut Client, line: &str, config: &Config) {
+    if line == GRAPHIC_TEAM_NAME {
+        authenticate_gui_client(client);
+        return;
+    }
+
+    if is_valid_team_name(line, config) {
+        authenticate_ai_client(client, line, config);
+        return;
+    }
+
+    reject_unknown_team(client, line);
+}
+
+fn authenticate_gui_client(client: &mut Client) {
+    client.state = ClientState::Gui;
+    client.team_name = None;
+
+    println!("GUI client authenticated");
+}
+
+fn is_valid_team_name(team_name: &str, config: &Config) -> bool {
+    config.teams.iter().any(|team| team == team_name)
+}
+
+fn authenticate_ai_client(client: &mut Client, team_name: &str, config: &Config) {
+    client.state = ClientState::Ai;
+    client.team_name = Some(team_name.to_string());
+
+    let response = format!(
+        "{}{}{}{}{}{}",
+        config.clients_nb,
+        RESPONSE_END,
+        config.width,
+        RESPONSE_SEPARATOR,
+        config.height,
+        RESPONSE_END
+    );
+
+    if let Err(error) = client.socket.write_all(response.as_bytes()) {
+        eprintln!("Failed to send AI handshake response: {}", error);
+    }
+
+    println!("AI client authenticated for team {}", team_name);
+}
+
+fn reject_unknown_team(client: &mut Client, team_name: &str) {
+    eprintln!("Unknown team name: {}", team_name);
+
+    if let Err(error) = client.socket.write_all(b"ko\n") {
+        eprintln!("Failed to send rejection response: {}", error);
+    }
 }
