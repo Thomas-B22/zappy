@@ -73,6 +73,9 @@ const MIN_CAMERA_SPEED: f32 = 0.1;
 const MAX_CAMERA_SPEED: f32 = 10.0;
 const SPHERE_INTERSECT_RADIUS: f32 = 0.25;
 const MAX_WISH_DIR_LEN: f32 = 1.0;
+const MAX_CUBES_PER_RESOURCE: f32 = 5;
+const CUBE_HIGHT: f32 = 0.5;
+const CUBE_SIZE: f32 = 0.4;
 
 const CAMERA_FOVY: f32 = 70.0;
 const GRID_SPACING: f32 = 0.5;
@@ -81,6 +84,10 @@ const PITCH_DISPLAY_OFFSET: f32 = 89.0;
 const LASER_OFFSET_FORWARD: f32 = 0.5;
 const LASER_OFFSET_SIDE: f32 = 0.2;
 const LASER_OFFSET_DOWN: f32 = 0.2;
+const DEFAULT_ASPECT_RATIO: f32 = 1.33;
+const TILE_UPDATE_FIELD_COUNT: f32 = 9;
+const PLAYER_NEW_FIELD_COUNT: f32 = 5;
+const PLAYER_MOVE_FIELD_COUNT: f32 = 4;
 
 const COLOR_RED: Color = Color {
     r: 255,
@@ -180,7 +187,7 @@ fn get_or_create_chunk(chunks: &mut HashMap<usize, Chunk>, cx: usize, cz: usize,
                 };
                 let mut cube_idx = 0u32;
                 for (res_idx, &count) in resources.iter().enumerate() {
-                    for _ in 0..count.min(5) { // max 5 cubes par ressource pour éviter l'objet géant
+                    for _ in 0..count.min(MAX_CUBES_PER_RESOURCE) {
                         let angle = (cube_idx as f32) * GOLDEN_ANGLE;
                         let pos = Vec3 {
                             x: fx + (CUBE_OFFSET_RADIUS_XZ * angle.cos()),
@@ -575,13 +582,13 @@ fn send_overlay_metrics(
 
 fn color_from_resource(resource_idx: usize) -> Color {
     match resource_idx {
-        0 => Color { r: 210, g: 140, b:  50, a: 255 }, // food      → orange
-        1 => Color { r: 160, g: 160, b: 160, a: 255 }, // linemate  → gris
-        2 => Color { r: 210, g: 190, b:  50, a: 255 }, // deraumere → jaune
-        3 => Color { r:  80, g: 200, b: 100, a: 255 }, // sibur     → vert
-        4 => Color { r: 180, g:  80, b: 210, a: 255 }, // mendiane  → violet
-        5 => Color { r:  80, g: 180, b: 220, a: 255 }, // phiras    → bleu clair
-        _ => Color { r: 220, g:  50, b:  50, a: 255 }, // thystame  → rouge
+        0 => Color { r: 210, g: 140, b:  50, a: 255 },
+        1 => Color { r: 160, g: 160, b: 160, a: 255 },
+        2 => Color { r: 210, g: 190, b:  50, a: 255 },
+        3 => Color { r:  80, g: 200, b: 100, a: 255 },
+        4 => Color { r: 180, g:  80, b: 210, a: 255 },
+        5 => Color { r:  80, g: 180, b: 220, a: 255 },
+        _ => Color { r: 220, g:  50, b:  50, a: 255 },
     }
 }
 
@@ -908,7 +915,7 @@ impl Guest for Module {
             z: camera.yaw.cos() * camera.pitch.cos(),
         };
 
-        let aspect = if h > 1.0 { w / h } else { 1.33 };
+        let aspect = if h > 1.0 { w / h } else { DEFAULT_ASPECT_RATIO };
         let frustum = Frustum::from_camera(
             &camera.position,
             &rd,
@@ -945,8 +952,8 @@ impl Guest for Module {
                     _ => Color { r: 255, g: 255, b: 255, a: 255 },
                 };
                 player_cubes.push(CubeCmd {
-                    position: Vec3 { x: world_x, y: 0.5, z: world_z },
-                    size: Vec3 { x: 0.4, y: 0.4, z: 0.4 },
+                    position: Vec3 { x: world_x, y: CUBE_HIGHT, z: world_z },
+                    size: Vec3 { x: CUBE_SIZE, y: CUBE_SIZE, z: CUBE_SIZE },
                     color,
                 });
             }
@@ -983,7 +990,7 @@ impl Guest for Module {
             }
             "zappy:tile_update" => {
                 let parts: Vec<&str> = payload.split_whitespace().collect();
-                if parts.len() == 9 {
+                if parts.len() == TILE_UPDATE_FIELD_COUNT {
                     let x: u32 = parts[0].parse().unwrap_or(0);
                     let y: u32 = parts[1].parse().unwrap_or(0);
                     let (map_w, _) = *MAP_DIMENSIONS.lock().unwrap();
@@ -1000,7 +1007,6 @@ impl Guest for Module {
                                 parts[7].parse().unwrap_or(0),
                                 parts[8].parse().unwrap_or(0),
                             ];
-                            // Force la régénération du chunk correspondant
                             let chunk_x = x as usize / CHUNK_SIZE;
                             let chunk_z = y as usize / CHUNK_SIZE;
                             let chunks_z = (map_w as usize).div_ceil(CHUNK_SIZE);
@@ -1011,9 +1017,8 @@ impl Guest for Module {
                 }
             }
             "zappy:player_new" => {
-                // payload = "id x y direction level"
                 let parts: Vec<&str> = payload.split_whitespace().collect();
-                if parts.len() == 5 {
+                if parts.len() == PLAYER_NEW_FIELD_COUNT {
                     let id:  u32 = parts[0].parse().unwrap_or(0);
                     let x:   u32 = parts[1].parse().unwrap_or(0);
                     let y:   u32 = parts[2].parse().unwrap_or(0);
@@ -1025,9 +1030,8 @@ impl Guest for Module {
                 }
             }
             "zappy:player_move" => {
-                // payload = "id x y direction"
                 let parts: Vec<&str> = payload.split_whitespace().collect();
-                if parts.len() == 4 {
+                if parts.len() == PLAYER_MOVE_FIELD_COUNT {
                     let id:  u32 = parts[0].parse().unwrap_or(0);
                     let x:   u32 = parts[1].parse().unwrap_or(0);
                     let y:   u32 = parts[2].parse().unwrap_or(0);

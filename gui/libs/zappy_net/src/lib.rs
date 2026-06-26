@@ -49,6 +49,30 @@ struct GameState {
     teams:   Vec<String>,
 }
 
+const MSZ_FIELD_COUNT: f32 = 3;
+const SGT_FIELD_COUNT: f32 = 2;
+const BCT_FIELD_COUNT: f32 = 10;
+const TNA_FIELD_COUNT: f32 = 2;
+const PNW_FIELD_COUNT: f32 = 7;
+const PPO_FIELD_COUNT: f32 = 5;
+const PLV_FIELD_COUNT: f32 = 3;
+const PDI_FIELD_COUNT: f32 = 2;
+const SEG_FIELD_COUNT: f32 = 2;
+const PIN_FIELD_COUNT: f32 = 11;
+const PEX_FIELD_COUNT: f32 = 2;
+const PIE_FIELD_COUNT: f32 = 4;
+const PFK_FIELD_COUNT: f32 = 2;
+const PDR_FIELD_COUNT: f32 = 3;
+const PGT_FIELD_COUNT: f32 = 3;
+const ENW_FIELD_COUNT: f32 = 5;
+const EBO_FIELD_COUNT: f32 = 2;
+const EDI_FIELD_COUNT: f32 = 2;
+const SST_FIELD_COUNT: f32 = 2;
+
+const PBC_MIN_FIELD_COUNT: f32 = 3;
+const PIC_MIN_FIELD_COUNT: f32 = 4;
+const SMG_MIN_FIELD_COUNT: f32 = 2;
+
 impl GameState {
     fn new() -> Self {
         Self {
@@ -82,7 +106,7 @@ fn parse_line(line: &str, state: &mut GameState) {
 
     match parts[0] {
 
-        "msz" if parts.len() == 3 => {
+        "msz" if parts.len() == MSZ_FIELD_COUNT => {
             let w = parts[1].parse().unwrap_or(0);
             let h = parts[2].parse().unwrap_or(0);
             state.width  = w;
@@ -91,11 +115,11 @@ fn parse_line(line: &str, state: &mut GameState) {
             emit_event("zappy:map_size", &format!("{} {}", w, h));
         }
 
-        "sgt" if parts.len() == 2 => {
+        "sgt" if parts.len() == SGT_FIELD_COUNT => {
             state.freq = parts[1].parse().unwrap_or(0);
         }
 
-        "bct" if parts.len() == 10 => {
+        "bct" if parts.len() == BCT_FIELD_COUNT => {
             let x: u32 = parts[1].parse().unwrap_or(0);
             let y: u32 = parts[2].parse().unwrap_or(0);
             if let Some(tile) = state.tile_mut(x, y) {
@@ -114,12 +138,12 @@ fn parse_line(line: &str, state: &mut GameState) {
             ));
         }
 
-        "tna" if parts.len() == 2 => {
+        "tna" if parts.len() == TNA_FIELD_COUNT => {
             state.teams.push(parts[1].to_string());
             emit_event("zappy:team", parts[1]);
         }
 
-        "pnw" if parts.len() == 7 => {
+        "pnw" if parts.len() == PNW_FIELD_COUNT => {
             let id_str = parts[1].trim_start_matches('#');
             let id: u32 = id_str.parse().unwrap_or(0);
             let x: u32  = parts[2].parse().unwrap_or(0);
@@ -135,7 +159,7 @@ fn parse_line(line: &str, state: &mut GameState) {
             emit_event("zappy:player_new", &format!("{} {} {}", id, x, y));
         }
 
-        "ppo" if parts.len() == 5 => {
+        "ppo" if parts.len() == PPO_FIELD_COUNT => {
             let id_str = parts[1].trim_start_matches('#');
             let id: u32 = id_str.parse().unwrap_or(0);
             let x: u32  = parts[2].parse().unwrap_or(0);
@@ -147,7 +171,7 @@ fn parse_line(line: &str, state: &mut GameState) {
             emit_event("zappy:player_move", &format!("{} {} {}", id, x, y));
         }
 
-        "plv" if parts.len() == 3 => {
+        "plv" if parts.len() == PLV_FIELD_COUNT => {
             let id_str = parts[1].trim_start_matches('#');
             let id: u32 = id_str.parse().unwrap_or(0);
             let lvl: u32 = parts[2].parse().unwrap_or(1);
@@ -157,17 +181,17 @@ fn parse_line(line: &str, state: &mut GameState) {
             emit_event("zappy:player_level", &format!("{} {}", id, lvl));
         }
 
-        "pdi" if parts.len() == 2 => {
+        "pdi" if parts.len() == PDI_FIELD_COUNT => {
             let id_str = parts[1].trim_start_matches('#');
             let id: u32 = id_str.parse().unwrap_or(0);
             state.players.retain(|p| p.id != id);
             emit_event("zappy:player_death", &id.to_string());
         }
 
-        "seg" if parts.len() == 2 => {
+        "seg" if parts.len() == SEG_FIELD_COUNT => {
             emit_event("zappy:game_over", parts[1]);
         }
-        "pin" if parts.len() == 11 => {
+        "pin" if parts.len() == PIN_FIELD_COUNT => {
             let id: u32 = parts[1].trim_start_matches('#').parse().unwrap_or(0);
             if let Some(p) = state.players.iter_mut().find(|p| p.id == id) {
                 p.inv_food      = parts[3].parse().unwrap_or(0);
@@ -180,60 +204,60 @@ fn parse_line(line: &str, state: &mut GameState) {
             }
             emit_event("zappy:player_inventory", parts[1].trim_start_matches('#'));
         }
-        "pex" if parts.len() == 2 => {
+        "pex" if parts.len() == PEX_FIELD_COUNT => {
             let id: u32 = parts[1].trim_start_matches('#').parse().unwrap_or(0);
             emit_event("zappy:player_expulsion", &id.to_string());
         }
-        "pbc" if parts.len() >= 3 => {
+        "pbc" if parts.len() >= PBC_MIN_FIELD_COUNT => {
             let id: u32 = parts[1].trim_start_matches('#').parse().unwrap_or(0);
             let msg = parts[2..].join(" ");
             emit_event("zappy:player_broadcast", &format!("{} {}", id, msg));
         }
-        "pic" if parts.len() >= 4 => {
+        "pic" if parts.len() >= PIC_MIN_FIELD_COUNT => {
             let x: u32   = parts[1].parse().unwrap_or(0);
             let y: u32   = parts[2].parse().unwrap_or(0);
             let lvl: u32 = parts[3].parse().unwrap_or(0);
             emit_event("zappy:incantation_start", &format!("{} {} {}", x, y, lvl));
         }
-        "pie" if parts.len() == 4 => {
+        "pie" if parts.len() == PIE_FIELD_COUNT => {
             let x: u32 = parts[1].parse().unwrap_or(0);
             let y: u32 = parts[2].parse().unwrap_or(0);
             emit_event("zappy:incantation_end", &format!("{} {} {}", x, y, parts[3]));
         }
-        "pfk" if parts.len() == 2 => {
+        "pfk" if parts.len() == PFK_FIELD_COUNT => {
             let id: u32 = parts[1].trim_start_matches('#').parse().unwrap_or(0);
             emit_event("zappy:player_fork", &id.to_string());
         }
-        "pdr" if parts.len() == 3 => {
+        "pdr" if parts.len() == PDR_FIELD_COUNT => {
             let id: u32  = parts[1].trim_start_matches('#').parse().unwrap_or(0);
             let res: u32 = parts[2].parse().unwrap_or(0);
             emit_event("zappy:player_drop", &format!("{} {}", id, res));
         }
-        "pgt" if parts.len() == 3 => {
+        "pgt" if parts.len() == PGT_FIELD_COUNT => {
             let id: u32  = parts[1].trim_start_matches('#').parse().unwrap_or(0);
             let res: u32 = parts[2].parse().unwrap_or(0);
             emit_event("zappy:player_take", &format!("{} {}", id, res));
         }
-        "enw" if parts.len() == 5 => {
+        "enw" if parts.len() == ENW_FIELD_COUNT => {
             let egg_id: u32    = parts[1].trim_start_matches('#').parse().unwrap_or(0);
             let player_id: u32 = parts[2].trim_start_matches('#').parse().unwrap_or(0);
             let x: u32 = parts[3].parse().unwrap_or(0);
             let y: u32 = parts[4].parse().unwrap_or(0);
             emit_event("zappy:egg_laid", &format!("{} {} {} {}", egg_id, player_id, x, y));
         }
-        "ebo" if parts.len() == 2 => {
+        "ebo" if parts.len() == EBO_FIELD_COUNT => {
             let egg_id: u32 = parts[1].trim_start_matches('#').parse().unwrap_or(0);
             emit_event("zappy:egg_hatched", &egg_id.to_string());
         }
-        "edi" if parts.len() == 2 => {
+        "edi" if parts.len() == EDI_FIELD_COUNT => {
             let egg_id: u32 = parts[1].trim_start_matches('#').parse().unwrap_or(0);
             emit_event("zappy:egg_dead", &egg_id.to_string());
         }
-        "sst" if parts.len() == 2 => {
+        "sst" if parts.len() == SST_FIELD_COUNT => {
             state.freq = parts[1].parse().unwrap_or(state.freq);
             emit_event("zappy:freq_update", &state.freq.to_string());
         }
-        "smg" if parts.len() >= 2 => {
+        "smg" if parts.len() >= SMG_MIN_FIELD_COUNT => {
             emit_event("zappy:server_message", &parts[1..].join(" "));
         }
         "suc" => { emit_event("zappy:unknown_command", ""); }
