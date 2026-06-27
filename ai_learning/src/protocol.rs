@@ -175,7 +175,7 @@ pub fn action_to_command(action: usize) -> &'static str {
     }
 }
 
-// unit tests for the protocol parsing
+// unit tests
 
 fn parse(s: &str) -> ServerResponse {
     parse_response(s).unwrap_or_else(|| panic!("parse_response returned None for: {s:?}"))
